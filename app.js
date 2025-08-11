@@ -54,7 +54,8 @@ async function downloadExtension(extensionId) {
   }
 
   return new Promise((resolve, reject) => {
-    request({ url, headers, encoding: null }, (error, response, body) => {
+    // 使用本地网络下载扩展，不使用代理
+    request({ url, headers, encoding: null, proxy: false }, (error, response, body) => {
       if (error) {
         console.error("Error downloading extension:", error)
         return reject(error)
