@@ -23,7 +23,8 @@ RUN apt-get update -qq -y && \
         libgtk-4-1 \
         libnss3 \
         xdg-utils \
-        wget
+        wget \
+        dos2unix
 
 ADD . /app/
 
@@ -37,6 +38,7 @@ RUN pm2 set pm2-logrotate:rotateInterval '*/5 * * * *'
 RUN pm2 set pm2-logrotate:max_size 10M
 RUN pm2 set pm2-logrotate:retain 2
 RUN SE_AVOID_BROWSER_DOWNLOAD=false SE_OFFLINE=false ./node_modules/selenium-webdriver/bin/linux/selenium-manager --browser chrome --output SHELL --browser-version $SE_BROWSER_VERSION
+RUN dos2unix /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 CMD ["/bin/bash", "/app/entrypoint.sh"]

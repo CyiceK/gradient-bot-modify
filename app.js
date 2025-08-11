@@ -246,11 +246,42 @@ async function getProxyIpInfo(driver, proxyUrl) {
 
     console.log("-> Extension opened!")
 
-    // 直到找到 "Status" 文本的 div 元素
-    await driver.wait(
-      until.elementLocated(By.xpath('//div[contains(text(), "Status")]')),
-      30000
-    )
+    // 等待页面加载完成，增加更长的等待时间
+    await driver.sleep(10000)
+
+    // 尝试多种选择器来找到Status元素
+    let statusFound = false
+    const selectors = [
+      '//*[contains(text(), "Status")]',
+      '//div[contains(@class, "Helveticae") and contains(text(), "Status")]',
+      '//div[contains(@class, "helveticae") and contains(text(), "Status")]',
+      '//*[text()="Status"]'
+    ]
+
+    for (const selector of selectors) {
+      try {
+        console.log(`-> Trying selector: ${selector}`)
+        await driver.wait(until.elementLocated(By.xpath(selector)), 15000)
+        console.log(`-> Found Status element with selector: ${selector}`)
+        statusFound = true
+        break
+      } catch (error) {
+        console.log(`-> Selector failed: ${selector}`)
+        continue
+      }
+    }
+
+    if (!statusFound) {
+      console.log("-> Could not find Status element, taking screenshot for debugging...")
+      await takeScreenshot(driver, "debug-no-status.png")
+
+      // 保存页面HTML用于调试
+      const pageSource = await driver.getPageSource()
+      fs.writeFileSync("debug-page-source.html", pageSource)
+      console.log("-> Page source saved to debug-page-source.html")
+
+      throw new Error("Could not find Status element with any selector")
+    }
 
     console.log("-> Extension loaded!")
 
