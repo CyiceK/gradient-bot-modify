@@ -14,7 +14,6 @@ require('console-stamp')(console, {
 require("dotenv").config()
 
 const extensionId = "caacbgbklghmpodbdafajbgdnegacfmo"
-// 扩展下载使用本地网络，不通过代理
 const CRX_URL = `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=98.0.4758.102&acceptformat=crx2,crx3&x=id%3D${extensionId}%26uc&nacl_arch=x86-64`
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36"
@@ -55,16 +54,7 @@ async function downloadExtension(extensionId) {
   }
 
   return new Promise((resolve, reject) => {
-    // 使用本地网络下载，不使用代理
-    const requestOptions = {
-      url,
-      headers,
-      encoding: null,
-      // 明确禁用代理
-      proxy: false
-    }
-
-    request(requestOptions, (error, response, body) => {
+    request({ url, headers, encoding: null }, (error, response, body) => {
       if (error) {
         console.error("Error downloading extension:", error)
         return reject(error)
@@ -74,7 +64,6 @@ async function downloadExtension(extensionId) {
         const md5 = crypto.createHash("md5").update(body).digest("hex")
         console.log("-> Extension MD5: " + md5)
       }
-      console.log("-> Extension downloaded successfully using local network!")
       resolve()
     })
   })
@@ -149,40 +138,28 @@ async function getDriverOptions() {
   if (PROXY) {
     console.log("-> Setting up proxy...", PROXY)
 
-    try {
-      let proxyUrl = PROXY
+    let proxyUrl = PROXY
 
-      // if no scheme, add http://
-      if (!proxyUrl.includes("://")) {
-        proxyUrl = `http://${proxyUrl}`
-      }
-
-      // 添加超时处理，避免代理链处理卡住
-      const proxyPromise = proxyChain.anonymizeProxy(proxyUrl)
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Proxy setup timeout')), 10000)
-      )
-
-      const newProxyUrl = await Promise.race([proxyPromise, timeoutPromise])
-
-      console.log("-> New proxy URL:", newProxyUrl)
-
-      options.setProxy(
-        proxy.manual({
-          http: newProxyUrl,
-          https: newProxyUrl,
-        })
-      )
-      const url = new URL(newProxyUrl)
-      console.log("-> Proxy host:", url.hostname)
-      console.log("-> Proxy port:", url.port)
-      options.addArguments(`--proxy-server=socks5://${url.hostname}:${url.port}`)
-      console.log("-> Setting up proxy done!")
-    } catch (error) {
-      console.error("-> Proxy setup failed:", error.message)
-      console.log("-> Continuing without proxy...")
-      // 不抛出错误，继续执行
+    // if no scheme, add http://
+    if (!proxyUrl.includes("://")) {
+      proxyUrl = `http://${proxyUrl}`
     }
+
+    const newProxyUrl = await proxyChain.anonymizeProxy(proxyUrl)
+
+    console.log("-> New proxy URL:", newProxyUrl)
+
+    options.setProxy(
+      proxy.manual({
+        http: newProxyUrl,
+        https: newProxyUrl,
+      })
+    )
+    const url = new URL(newProxyUrl)
+    console.log("-> Proxy host:", url.hostname)
+    console.log("-> Proxy port:", url.port)
+    options.addArguments(`--proxy-server=socks5://${url.hostname}:${url.port}`)
+    console.log("-> Setting up proxy done!")
   } else {
     console.log("-> No proxy set!")
   }
@@ -197,10 +174,8 @@ async function getProxyIpInfo(driver, proxyUrl) {
   console.log("-> Getting proxy IP info:", proxyUrl)
 
   try {
-    // 设置更短的超时时间，避免长时间卡住
-    await driver.manage().setTimeouts({ pageLoad: 15000, script: 15000 })
     await driver.get(url)
-    await driver.wait(until.elementLocated(By.css("body")), 15000)
+    await driver.wait(until.elementLocated(By.css("body")), 30000)
     const pageText = await driver.findElement(By.css("body")).getText()
     console.log("-> Proxy IP info:", pageText)
   } catch (error) {
@@ -235,50 +210,11 @@ async function getProxyIpInfo(driver, proxyUrl) {
 
     console.log("-> Browser started!")
 
-    // 设置全局超时，防止各种操作卡住
-    await driver.manage().setTimeouts({
-      implicit: 10000,      // 隐式等待10秒
-      pageLoad: 30000,      // 页面加载30秒
-      script: 30000         // 脚本执行30秒
-    })
-
     if (PROXY) {
       try {
-        // 添加重试机制，最多重试10次
-        let retryCount = 0
-        const maxRetries = 10
-        let success = false
-
-        while (retryCount < maxRetries && !success) {
-          try {
-            await getProxyIpInfo(driver, PROXY)
-            success = true // 成功标记
-            retryCount = 0 // 成功后清空重试次数
-            console.log("-> Proxy check successful!")
-            break // 成功则跳出循环
-          } catch (error) {
-            retryCount++
-            console.log(`-> Proxy check failed (attempt ${retryCount}/${maxRetries}):`, error.message)
-
-            if (retryCount >= maxRetries) {
-              console.log("-> Proxy check failed after all retries, continuing anyway...")
-              console.log(`-> Please check the proxy manually: curl -vv -x ${PROXY} https://myip.ipip.net`)
-              break // 不抛出错误，继续执行
-            }
-
-            // 渐进式延迟：第1次等待2秒，第2次等待4秒，第3次等待6秒，最多10秒
-            const delaySeconds = Math.min(retryCount * 2, 10)
-            console.log(`-> Waiting ${delaySeconds} seconds before retry...`)
-            await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000))
-          }
-        }
-
-        if (success) {
-          console.log("-> Proxy validation completed successfully")
-        }
+        await getProxyIpInfo(driver, PROXY)
       } catch (error) {
-        console.error("-> Proxy validation error:", error.message)
-        console.log("-> Continuing without proxy validation...")
+        throw new Error("Failed to get proxy IP info, please check the proxy by the command 'curl -vv -x ${PROXY} https://myip.ipip.net'")
       }
     }
 
@@ -335,7 +271,7 @@ async function getProxyIpInfo(driver, proxyUrl) {
 
     // if found a div include text "Sorry, Gradient is not yet available in your region. ", then exit
     try {
-      await driver.findElement(
+      const notAvailable = await driver.findElement(
         By.xpath(
           '//*[contains(text(), "Sorry, Gradient is not yet available in your region.")]'
         )
@@ -391,54 +327,18 @@ async function getProxyIpInfo(driver, proxyUrl) {
 
     console.log("-> Lunched!")
 
-    // keep the process running with better error handling
-    let intervalId = setInterval(async () => {
-      try {
-        // 检查driver是否还有效
-        const title = await driver.getTitle()
+    // keep the process running
+    setInterval(() => {
+      driver.getTitle().then((title) => {
         console.log(`-> [${USER}] Running...`, title)
+      })
 
-        if (PROXY) {
-          console.log(`-> [${USER}] Running with proxy ${PROXY}...`)
-        } else {
-          console.log(`-> [${USER}] Running without proxy...`)
-        }
-      } catch (error) {
-        console.error("-> Error in monitoring loop:", error.message)
-        // 如果driver出错，清理定时器并退出
-        clearInterval(intervalId)
-        console.log("-> Stopping monitoring due to driver error")
-        try {
-          await driver.quit()
-        } catch (quitError) {
-          console.error("-> Error quitting driver:", quitError.message)
-        }
-        process.exit(1)
+      if (PROXY) {
+        console.log(`-> [${USER}] Running with proxy ${PROXY}...`)
+      } else {
+        console.log(`-> [${USER}] Running without proxy...`)
       }
     }, 30000)
-
-    // 添加进程退出时的清理
-    process.on('SIGINT', async () => {
-      console.log('-> Received SIGINT, cleaning up...')
-      clearInterval(intervalId)
-      try {
-        await driver.quit()
-      } catch (error) {
-        console.error('-> Error during cleanup:', error.message)
-      }
-      process.exit(0)
-    })
-
-    process.on('SIGTERM', async () => {
-      console.log('-> Received SIGTERM, cleaning up...')
-      clearInterval(intervalId)
-      try {
-        await driver.quit()
-      } catch (error) {
-        console.error('-> Error during cleanup:', error.message)
-      }
-      process.exit(0)
-    })
   } catch (error) {
     console.error("Error occurred:", error)
     // show error line
